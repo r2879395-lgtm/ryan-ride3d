@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snow Rider 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+        }
+        #game-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allows mouse events to pass through to the canvas */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .ui-panel {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            border-radius: 12px;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            pointer-events: auto;
+        }
+        .modal {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.75);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container"></div>
+
+    <div id="ui-overlay">
+        <!-- Score Display -->
+        <div class="ui-panel mb-4">
+            <h1 class="text-xl font-bold">Score: <span id="score-value">0</span></h1>
+        </div>
+
+        <!-- Instructions -->
+        <div id="instructions" class="ui-panel p-6 text-center">
+            <h2 class="text-2xl font-bold mb-2 text-indigo-300">SNOW Rider 3D</h2>
+            <p class="text-lg mb-4">Dodge or jump the obstacles!</p>
+            <p class="text-sm font-semibold">Controls: Use A/D or Left/Right Arrow Keys to move. Use <strong class="text-yellow-400">W, UP ARROW, or SPACE</strong> to jump!</p>
+            <button id="start-button" class="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
+                START RIDING
+            </button>
+        </div>
+
+        <!-- Game Over Modal (Initially hidden) -->
+        <div id="game-over-modal" class="modal hidden">
+            <div class="ui-panel text-center p-8">
+                <h2 class="text-4xl font-extrabold mb-4 text-red-400">GAME OVER!</h2>
+                <p class="text-xl mb-4">Final Score: <span id="final-score-value">0</span></p>
+                <p class="text-lg mb-6">Hit an obstacle! Try again!</p>
+                <button id="restart-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-lg shadow-xl transition duration-300 ease-in-out transform hover:scale-105">
+                    RESTART
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Global Three.js variables
+        let scene, camera, renderer;
+        let player; // Player is now a THREE.Group
+        let keyStates = {};
+        let speed = 0.65; // Increased starting speed
+        const PLAYER_MAX_X = 15;
+        const OBSTACLE_COUNT = 15; // More obstacles
+        const OBSTACLE_Z_SPACING = 20; // Reduced spacing for more difficulty
+
+        let obstacles = [];
+        let isPlaying = false;
+        let score = 0;
+        let scoreInterval;
+        
+        // Jump variables and constants
+        let verticalVelocity = 0;
+        const JUMP_VELOCITY = 0.5;
+        const GRAVITY = 0.03;
+        
+        // Constants for collision
+        const PLAYER_COLLISION_WIDTH = 1.5;
+        const PLAYER_COLLISION_DEPTH = 3.0; // Adjusted to match the sled's length for better accuracy
+
+        // --- Utility Functions ---
+
+        /**
+         * Generates a random integer between min (inclusive) and max (inclusive).
+         */
+        function getRandomInt(min, max) {
+            min = Math.ceil(min);
+            max = Math.floor(max);
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        /**
+         * Converts a distance score to a display string.
+         */
+        function updateScoreDisplay() {
+            document.getElementById('score-value').textContent = Math.floor(score);
+            score += 0.1 * speed; // Score increases with distance and speed
+        }
+
+        /**
+         * Handles the collision detection between the player and obstacles (Circle vs. Rectangle).
+         */
+        function checkCollision() {
+            // Player's bounding box area, centered at player.position
+            const playerBBox = {
+                x: player.position.x,
+                z: player.position.z,
+                width: PLAYER_COLLISION_WIDTH, 
+                depth: PLAYER_COLLISION_DEPTH,
+                y: player.position.y, // Player's current vertical position
+            };
+
+            for (const obstacle of obstacles) {
+                if (!obstacle.visible) continue;
+
+                // Collision data stored in obstacle's userData
+                const treeRadius = obstacle.userData.treeRadius || 0.5; 
+                const obstacleHeight = obstacle.userData.obstacleHeight || 8.0; 
+
+                const obstacleBBox = {
+                    x: obstacle.position.x,
+                    z: obstacle.position.z,
+                    radius: treeRadius,
+                };
+                
+                // JUMP CHECK: If the obstacle is low (like a stump, obstacleHeight < 1.0) and the player 
+                // is high enough to clear it, skip collision. 
+                if (obstacleHeight < 1.0 && playerBBox.y > obstacleHeight * 1.5) {
+                    continue; 
+                }
+                
+                // Find the closest point on the player's AABB (rectangle) to the tree's center (circle)
+                // This determines the minimum distance between the two shapes in the XZ plane.
+                let closestX = Math.max(
+                    playerBBox.x - playerBBox.width / 2, 
+                    Math.min(obstacleBBox.x, playerBBox.x + playerBBox.width / 2)
+                );
+                let closestZ = Math.max(
+                    playerBBox.z - playerBBox.depth / 2, 
+                    Math.min(obstacleBBox.z, playerBBox.z + playerBBox.depth / 2)
+                );
+
+                // Calculate the distance from this closest point to the tree's center
+                const dx = obstacleBBox.x - closestX;
+                const dz = obstacleBBox.z - closestZ;
+                const distanceSquared = (dx * dx) + (dz * dz);
+
+                // Collision occurs if the distance between the closest point and the obstacle center is 
+                // less than the obstacle's radius squared.
+                if (distanceSquared < (treeRadius * treeRadius)) {
+                    // Collision detected across the full depth and width of the sled.
+                    gameOver();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // --- Core Game Logic ---
+
+        /**
+         * Initializes the Three.js scene, camera, renderer, and lighting.
+         */
+        function init() {
+            const container = document.getElementById('game-container');
+
+            // Scene setup (the stage)
+            scene = new THREE.Scene();
+            // Use light blue sky color from the low-poly reference image
+            scene.background = new THREE.Color(0xADD8E6); 
+
+            // Camera setup (define the camera)
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            // Renderer setup (the painter)
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 3); // soft white light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+            directionalLight.position.set(20, 50, 20);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 200;
+            directionalLight.shadow.camera.left = -50;
+            directionalLight.shadow.camera.right = 50;
+            directionalLight.shadow.camera.top = 50;
+            directionalLight.shadow.camera.bottom = -50;
+            scene.add(directionalLight);
+
+            // --- Create Low-Poly Sleigh Model ---
+            
+            const woodMaterial = new THREE.MeshPhongMaterial({ color: 0x8A4C3A, flatShading: true }); // Low-poly brown wood
+            const darkWoodMaterial = new THREE.MeshPhongMaterial({ color: 0x5D321F, flatShading: true });
+            const whitePatternMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF, flatShading: true }); // White for pattern
+
+            player = new THREE.Group();
+
+            // 1. Sled Body (The main brown piece)
+            const sledBodyGeometry = new THREE.BoxGeometry(1.8, 0.2, 3.0);
+            const sledBody = new THREE.Mesh(sledBodyGeometry, woodMaterial);
+            sledBody.position.set(0, 0.1, 0);
+            player.add(sledBody);
+
+            // 2. Runners (thin, dark wood)
+            const runnerGeometry = new THREE.BoxGeometry(0.1, 0.1, 3.2);
+            const runnerLeft = new THREE.Mesh(runnerGeometry, darkWoodMaterial);
+            runnerLeft.position.set(-0.8, 0.05, 0);
+            player.add(runnerLeft);
+            const runnerRight = new THREE.Mesh(runnerGeometry, darkWoodMaterial);
+            runnerRight.position.set(0.8, 0.05, 0);
+            player.add(runnerRight);
+
+            // 3. Decorative Pattern Top (Simulate the white knitted design)
+            const topDecoGeometry = new THREE.BoxGeometry(1.6, 0.05, 2.8);
+            const topDeco = new THREE.Mesh(topDecoGeometry, whitePatternMaterial);
+            topDeco.position.set(0, 0.25, 0);
+            player.add(topDeco);
+            
+            // 4. A small handle or front edge detail
+            const handleGeometry = new THREE.BoxGeometry(0.2, 0.25, 0.2);
+            const handle = new THREE.Mesh(handleGeometry, woodMaterial);
+            handle.position.set(0, 0.4, -1.3);
+            player.add(handle);
+            
+            // --- End Sleigh Model ---
+            
+            player.position.set(0, 0, 0); // Group position is the main reference point
+            player.castShadow = true;
+            scene.add(player);
+
+            // ATTACH CAMERA TO PLAYER FOR FIRST-PERSON MOVEMENT
+            // Camera position for 'in the sleigh' view
+            camera.position.set(0, 0.6, 0.0); 
+            camera.rotation.x = -0.25; 
+            player.add(camera); 
+
+            // Initial setup of terrain and obstacles
+            createTerrain();
+            setupObstacles();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('start-button').addEventListener('click', startGame);
+            document.getElementById('restart-button').addEventListener('click', startGame);
+
+            document.addEventListener('keydown', (event) => { keyStates[event.key.toLowerCase()] = true; });
+            document.addEventListener('keyup', (event) => { keyStates[event.key.toLowerCase()] = false; });
+        }
+
+        /**
+         * Creates a large, snowy ground plane and surrounding low-poly cliffs/mountains.
+         */
+        function createTerrain() {
+            // 1. Snow Track (Ground) - Pure White Snow
+            const geometry = new THREE.PlaneGeometry(35, 500, 1, 1);
+            const material = new THREE.MeshPhongMaterial({ color: 0xFFFFFF }); 
+            const ground = new THREE.Mesh(geometry, material);
+            ground.rotation.x = -Math.PI / 2; 
+            ground.position.y = 0;
+            ground.position.z = -200; 
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            // 2. Low-Poly Cliffs/Hills (Brown/Tan)
+            const cliffMaterial = new THREE.MeshPhongMaterial({ color: 0xB57B5A, flatShading: true }); // Tan/Brown, flat shading is key
+
+            // Create a custom geometric shape for the low-poly cliff (left side)
+            const cliffGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array([
+                // Define vertices for a long, faceted cliff side
+                -35.0, 0.0, 10.0,    // V0
+                -35.0, 15.0, 10.0,   // V1
+                -15.0, 0.0, 10.0,    // V2
+                
+                -35.0, 0.0, -400.0,  // V3
+                -35.0, 15.0, -400.0, // V4
+                -15.0, 0.0, -400.0,  // V5
+                
+                // Connecting side faces (simplified to form a long wall with a slope)
+                -35.0, 0.0, 10.0,
+                -35.0, 0.0, -400.0,
+                -35.0, 15.0, 10.0,
+
+                -35.0, 15.0, 10.0,
+                -35.0, 15.0, -400.0,
+                -35.0, 0.0, -400.0,
+                
+                // Top edges (creating a slope effect)
+                -35.0, 15.0, 10.0,
+                -15.0, 0.0, 10.0,
+                -25.0, 25.0, -200.0, 
+                
+                -35.0, 15.0, -400.0,
+                -15.0, 0.0, -400.0,
+                -25.0, 25.0, -200.0, 
+            ]);
+
+            cliffGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            cliffGeo.computeVertexNormals();
+            
+            // Left Cliff
+            const cliffLeft = new THREE.Mesh(cliffGeo, cliffMaterial);
+            cliffLeft.receiveShadow = true;
+            cliffLeft.castShadow = true;
+            scene.add(cliffLeft);
+
+            // Right Cliff (mirror the left by scaling X)
+            const cliffRight = new THREE.Mesh(cliffGeo, cliffMaterial);
+            cliffRight.scale.x = -1; 
+            cliffRight.receiveShadow = true;
+            cliffRight.castShadow = true;
+            scene.add(cliffRight);
+        }
+
+        /**
+         * Creates the first obstacle type: a bare, gnarled low-poly tree.
+         */
+        function createBareTree() {
+            const group = new THREE.Group();
+            
+            // Trunk (Simple brown cylinder/box)
+            const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x5D321F, flatShading: true });
+            const trunkGeometry = new THREE.BoxGeometry(0.3, 4.0, 0.3);
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 2.0; // Half height
+            group.add(trunk);
+            
+            // Branches (Low-Poly Look - use simple boxes/triangles)
+            const branchMaterial = new THREE.MeshPhongMaterial({ color: 0x402018, flatShading: true });
+            
+            // Branch 1 (slanted up-right)
+            const branch1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), branchMaterial);
+            branch1.rotation.z = THREE.MathUtils.degToRad(45);
+            branch1.position.set(0.5, 3.5, 0);
+            group.add(branch1);
+
+            // Branch 2 (slanted up-left)
+            const branch2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.0, 0.2), branchMaterial);
+            branch2.rotation.z = THREE.MathUtils.degToRad(-30);
+            branch2.position.set(-0.4, 4.0, 0);
+            group.add(branch2);
+            
+            // Branch 3 (small one to the front)
+            const branch3 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.5, 0.15), branchMaterial);
+            branch3.rotation.x = THREE.MathUtils.degToRad(60);
+            branch3.position.set(0, 3.0, 0.3);
+            group.add(branch3);
+
+            // Collision radius and height for the bare tree (narrow, tall)
+            const treeRadius = 0.5;
+            const obstacleHeight = 4.0;
+            
+            group.castShadow = true;
+            group.receiveShadow = true;
+
+            // Collision data
+            group.userData.isObstacle = true;
+            group.userData.treeRadius = treeRadius; 
+            group.userData.obstacleHeight = obstacleHeight;
+            group.visible = false;
+            return group;
+        }
+
+        /**
+         * Creates the second obstacle type: a large, low-poly snowy pine tree.
+         */
+        function createPineTree() {
+            const group = new THREE.Group();
+            
+            // Materials
+            const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x5D321F, flatShading: true }); // Dark brown
+            const snowMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF, flatShading: true }); // White snow
+            const foliageMaterial = new THREE.MeshPhongMaterial({ color: 0x8F5941, flatShading: true }); // Brown foliage/wood tone
+
+            // 1. Trunk
+            const trunkGeometry = new THREE.BoxGeometry(0.5, 3.0, 0.5);
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 1.5; 
+            group.add(trunk);
+            
+            // 2. Foliage/Snow Layer 1 (Base - largest)
+            const cone1 = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 5), foliageMaterial);
+            cone1.position.y = 3.0;
+            group.add(cone1);
+            
+            // Snow cap 1
+            const snow1 = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.5, 4.5), snowMaterial);
+            snow1.position.y = 4.5;
+            group.add(snow1);
+
+            // 3. Foliage/Snow Layer 2
+            const cone2 = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.5, 3.5), foliageMaterial);
+            cone2.position.y = 5.0;
+            group.add(cone2);
+            
+            // Snow cap 2
+            const snow2 = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 3), snowMaterial);
+            snow2.position.y = 6.25;
+            group.add(snow2);
+
+            // 4. Foliage/Snow Layer 3 (Top)
+            const cone3 = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), foliageMaterial);
+            cone3.position.y = 7.0;
+            group.add(cone3);
+
+            // Snow cap 3
+            const snow3 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 1.5), snowMaterial);
+            snow3.position.y = 8.0;
+            group.add(snow3);
+
+            // Collision radius and height for the pine tree (wide, tall)
+            const treeRadius = 2.0; 
+            const obstacleHeight = 8.0;
+            
+            group.castShadow = true;
+            group.receiveShadow = true;
+
+            // Collision data
+            group.userData.isObstacle = true;
+            group.userData.treeRadius = treeRadius; 
+            group.userData.obstacleHeight = obstacleHeight;
+            group.visible = false;
+            return group;
+        }
+        
+        /**
+         * Creates the third obstacle type: a low-poly tree stump (can be jumped over).
+         */
+        function createTreeStump() {
+            const group = new THREE.Group();
+            
+            // Materials
+            const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x5D321F, flatShading: true }); // Dark brown
+            const snowMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF, flatShading: true }); // White snow (for the top cap)
+
+            // 1. Stump Body (Short and wide cylinder for low-poly look)
+            const stumpGeometry = new THREE.CylinderGeometry(1.0, 1.0, 0.3, 8); // Wide cylinder
+            const stump = new THREE.Mesh(stumpGeometry, trunkMaterial);
+            stump.position.y = 0.15; // Half height
+            group.add(stump);
+            
+            // 2. Snow Cap on top
+            const capGeometry = new THREE.CylinderGeometry(0.9, 0.9, 0.1, 8);
+            const cap = new THREE.Mesh(capGeometry, snowMaterial);
+            cap.position.y = 0.35;
+            group.add(cap);
+
+            // Collision radius and height for the stump (wide, low)
+            const treeRadius = 1.0; 
+            const obstacleHeight = 0.35; 
+            
+            group.castShadow = true;
+            group.receiveShadow = true;
+
+            // Collision data
+            group.userData.isObstacle = true;
+            group.userData.treeRadius = treeRadius; 
+            group.userData.obstacleHeight = obstacleHeight;
+            group.visible = false;
+            return group;
+        }
+
+
+        /**
+         * Sets up the initial pool of obstacles, mixing all three types.
+         */
+        function setupObstacles() {
+            // Create a pool of obstacles
+            for (let i = 0; i < OBSTACLE_COUNT; i++) {
+                let obstacle;
+                
+                // Randomly choose between Bare Tree (0), Snowy Pine (1), or Tree Stump (2)
+                const type = getRandomInt(0, 2); 
+                
+                if (type === 0) {
+                    obstacle = createBareTree();
+                } else if (type === 1) {
+                    obstacle = createPineTree();
+                } else {
+                    obstacle = createTreeStump(); // New stump type
+                }
+
+                obstacles.push(obstacle);
+                scene.add(obstacle);
+                // Initial placement far down the track
+                resetObstacle(obstacle, -100 - i * OBSTACLE_Z_SPACING);
+            }
+        }
+
+        /**
+         * Resets an obstacle to a new position far down the track.
+         * @param {THREE.Group} obstacle The obstacle group to reset.
+         * @param {number} targetZ The Z-coordinate where the obstacle should be placed.
+         */
+        function resetObstacle(obstacle, targetZ) {
+            // Random X position between -PLAYER_MAX_X and PLAYER_MAX_X
+            // Ensure trees are not placed right on the edge of the track (at 0 position Y)
+            const randomX = getRandomInt(-PLAYER_MAX_X + 2, PLAYER_MAX_X - 2);
+
+            obstacle.position.set(randomX, 0, targetZ);
+            obstacle.visible = true; // Make sure it's visible when reset
+        }
+
+
+        /**
+         * The main game loop function.
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isPlaying) {
+                // 1. Update Game State
+                // Horizontal Movement: A/D or Left/Right Arrow
+                const deltaX = (keyStates['a'] || keyStates['arrowleft']) ? -1 : (keyStates['d'] || keyStates['arrowright']) ? 1 : 0;
+                
+                player.position.x += deltaX * 0.25;
+                player.position.x = Math.max(-PLAYER_MAX_X, Math.min(PLAYER_MAX_X, player.position.x));
+
+                // JUMP LOGIC: W, Up Arrow, or Spacebar
+                const isJumping = keyStates[' '] || keyStates['w'] || keyStates['arrowup'];
+
+                // Check for jump input and if the player is on the ground (y <= 0)
+                if (isJumping && player.position.y <= 0) {
+                    verticalVelocity = JUMP_VELOCITY;
+                    
+                    // Consume all jump keypresses to prevent rapid jumps
+                    keyStates[' '] = false;
+                    keyStates['w'] = false;
+                    keyStates['arrowup'] = false;
+                }
+
+                if (player.position.y > 0 || verticalVelocity > 0) {
+                    // Apply gravity
+                    verticalVelocity -= GRAVITY;
+                    player.position.y += verticalVelocity;
+                }
+                
+                // Check if landing or already on the ground
+                if (player.position.y < 0) {
+                    player.position.y = 0;
+                    verticalVelocity = 0;
+                }
+                
+                // 2. Move the World (Terrain and Obstacles)
+                const moveDistance = speed;
+
+                // Move obstacles
+                for (let i = 0; i < obstacles.length; i++) {
+                    const obstacle = obstacles[i];
+                    if (obstacle.visible) {
+                        obstacle.position.z += moveDistance; // Move towards the camera (Z=0)
+
+                        // Check if obstacle has passed the player (Z > 2)
+                        if (obstacle.position.z > 2) {
+                            // Find the Z position of the farthest (most negative Z) active obstacle.
+                            const farthestZ = obstacles.reduce((min, obs) => Math.min(min, obs.position.z), Infinity);
+                            
+                            // Place the recycled obstacle behind the farthest one by the spacing amount.
+                            const newZ = farthestZ - OBSTACLE_Z_SPACING;
+                            
+                            resetObstacle(obstacle, newZ);
+                        }
+                    }
+                }
+
+                // Increase speed over time (Twice as fast ramp-up)
+                speed += 0.0002;
+
+                // 3. Collision Check
+                checkCollision();
+            }
+
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+
+        /**
+         * Starts the game.
+         */
+        function startGame() {
+            // Reset state
+            score = 0;
+            speed = 0.65; // Reset to faster starting speed
+            isPlaying = true;
+            player.position.x = 0; // Center player
+            player.position.y = 0; // Reset vertical position
+            verticalVelocity = 0;
+            keyStates = {};
+
+            document.getElementById('instructions').classList.add('hidden');
+            document.getElementById('game-over-modal').classList.add('hidden');
+            document.getElementById('score-value').textContent = '0';
+
+            // Reset all obstacles and make them visible
+            for (let i = 0; i < obstacles.length; i++) {
+                // Place obstacles far down the track, spaced correctly
+                resetObstacle(obstacles[i], -100 - i * OBSTACLE_Z_SPACING);
+            }
+
+            // Start score counter
+            if (scoreInterval) clearInterval(scoreInterval);
+            scoreInterval = setInterval(updateScoreDisplay, 100);
+        }
+
+        /**
+         * Ends the game.
+         */
+        function gameOver() {
+            isPlaying = false;
+            clearInterval(scoreInterval);
+
+            // Update final score and show modal
+            document.getElementById('final-score-value').textContent = Math.floor(score);
+            document.getElementById('game-over-modal').classList.remove('hidden');
+        }
+
+        /**
+         * Handles window resizing to keep the 3D view correct.
+         */
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Initialize and start the animation loop once the window loads
+        window.onload = function () {
+            init();
+            animate();
+        };
+
+    </script>
+
+</body>
+</html>
