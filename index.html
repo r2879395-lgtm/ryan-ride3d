@@ -61,9 +61,10 @@
     <div id="game-container"></div>
 
     <div id="ui-overlay">
-        <!-- Score Display -->
-        <div class="ui-panel mb-4">
+        <!-- Score Display and NEW High Score Display -->
+        <div class="ui-panel mb-4 flex space-x-6">
             <h1 class="text-xl font-bold">Score: <span id="score-value">0</span></h1>
+            <h1 class="text-xl font-bold text-yellow-300">High Score: <span id="high-score-value">0</span></h1>
         </div>
 
         <!-- Instructions -->
@@ -80,8 +81,9 @@
         <div id="game-over-modal" class="modal hidden">
             <div class="ui-panel text-center p-8">
                 <h2 class="text-4xl font-extrabold mb-4 text-red-400">GAME OVER!</h2>
-                <p class="text-xl mb-4">Final Score: <span id="final-score-value">0</span></p>
-                <p class="text-lg mb-6">Hit an obstacle! Try again!</p>
+                <p class="text-xl mb-2">Final Score: <span id="final-score-value">0</span></p>
+                <!-- New High Score display in the modal -->
+                <p class="text-lg mb-6 text-yellow-300">Highest Score: <span id="final-high-score-value">0</span></p>
                 <button id="restart-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-lg shadow-xl transition duration-300 ease-in-out transform hover:scale-105">
                     RESTART
                 </button>
@@ -102,6 +104,7 @@
         let obstacles = [];
         let isPlaying = false;
         let score = 0;
+        let highScore = 0; // NEW: Global high score variable
         let scoreInterval;
         
         // Jump variables and constants
@@ -122,6 +125,26 @@
             min = Math.ceil(min);
             max = Math.floor(max);
             return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        /**
+         * Loads the high score from localStorage.
+         */
+        function loadHighScore() {
+            const storedScore = localStorage.getItem('snow_rider_high_score');
+            if (storedScore) {
+                highScore = parseInt(storedScore, 10);
+            }
+            document.getElementById('high-score-value').textContent = Math.floor(highScore);
+        }
+
+        /**
+         * Saves a new high score to localStorage and updates the display.
+         */
+        function saveHighScore(newScore) {
+            highScore = Math.floor(newScore);
+            localStorage.setItem('snow_rider_high_score', highScore);
+            document.getElementById('high-score-value').textContent = highScore;
         }
 
         /**
@@ -243,6 +266,7 @@
             const sledBodyGeometry = new THREE.BoxGeometry(1.8, 0.2, 3.0);
             const sledBody = new THREE.Mesh(sledBodyGeometry, woodMaterial);
             sledBody.position.set(0, 0.1, 0);
+            sledBody.castShadow = true;
             player.add(sledBody);
 
             // 2. Runners (thin, dark wood)
@@ -281,6 +305,9 @@
             // Initial setup of terrain and obstacles
             createTerrain();
             setupObstacles();
+            
+            // NEW: Load high score from storage
+            loadHighScore();
 
             // Event Listeners
             window.addEventListener('resize', onWindowResize);
@@ -718,9 +745,18 @@
         function gameOver() {
             isPlaying = false;
             clearInterval(scoreInterval);
+            
+            const finalScore = Math.floor(score);
+
+            // NEW: Check and update high score
+            if (finalScore > highScore) {
+                saveHighScore(finalScore);
+            }
 
             // Update final score and show modal
-            document.getElementById('final-score-value').textContent = Math.floor(score);
+            document.getElementById('final-score-value').textContent = finalScore;
+            // NEW: Update high score in modal
+            document.getElementById('final-high-score-value').textContent = highScore; 
             document.getElementById('game-over-modal').classList.remove('hidden');
         }
 
