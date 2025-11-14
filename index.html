@@ -61,7 +61,7 @@
     <div id="game-container"></div>
 
     <div id="ui-overlay">
-        <!-- Score Display and NEW High Score Display -->
+        <!-- Score Display and High Score Display -->
         <div class="ui-panel mb-4 flex space-x-6">
             <h1 class="text-xl font-bold">Score: <span id="score-value">0</span></h1>
             <h1 class="text-xl font-bold text-yellow-300">High Score: <span id="high-score-value">0</span></h1>
@@ -82,7 +82,7 @@
             <div class="ui-panel text-center p-8">
                 <h2 class="text-4xl font-extrabold mb-4 text-red-400">GAME OVER!</h2>
                 <p class="text-xl mb-2">Final Score: <span id="final-score-value">0</span></p>
-                <!-- New High Score display in the modal -->
+                <!-- High Score display in the modal -->
                 <p class="text-lg mb-6 text-yellow-300">Highest Score: <span id="final-high-score-value">0</span></p>
                 <button id="restart-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-lg shadow-xl transition duration-300 ease-in-out transform hover:scale-105">
                     RESTART
@@ -104,7 +104,7 @@
         let obstacles = [];
         let isPlaying = false;
         let score = 0;
-        let highScore = 0; // NEW: Global high score variable
+        let highScore = 0; // Global high score variable
         let scoreInterval;
         
         // Jump variables and constants
@@ -306,7 +306,7 @@
             createTerrain();
             setupObstacles();
             
-            // NEW: Load high score from storage
+            // Load high score from storage
             loadHighScore();
 
             // Event Listeners
@@ -418,7 +418,8 @@
             group.add(branch3);
 
             // Collision radius and height for the bare tree (narrow, tall)
-            const treeRadius = 0.5;
+            // REDUCED FROM 0.5 TO 0.4
+            const treeRadius = 0.4; 
             const obstacleHeight = 4.0;
             
             group.castShadow = true;
@@ -480,7 +481,8 @@
             group.add(snow3);
 
             // Collision radius and height for the pine tree (wide, tall)
-            const treeRadius = 2.0; 
+            // REDUCED FROM 2.0 TO 1.5
+            const treeRadius = 1.5; 
             const obstacleHeight = 8.0;
             
             group.castShadow = true;
@@ -748,14 +750,14 @@
             
             const finalScore = Math.floor(score);
 
-            // NEW: Check and update high score
+            // Check and update high score
             if (finalScore > highScore) {
                 saveHighScore(finalScore);
             }
 
             // Update final score and show modal
             document.getElementById('final-score-value').textContent = finalScore;
-            // NEW: Update high score in modal
+            // Update high score in modal
             document.getElementById('final-high-score-value').textContent = highScore; 
             document.getElementById('game-over-modal').classList.remove('hidden');
         }
