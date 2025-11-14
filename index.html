@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rider 3D</title>
+    <title>Snow Rider 3D</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
@@ -68,7 +68,7 @@
 
         <!-- Instructions -->
         <div id="instructions" class="ui-panel p-6 text-center">
-            <h2 class="text-2xl font-bold mb-2 text-indigo-300">Rider 3D</h2>
+            <h2 class="text-2xl font-bold mb-2 text-indigo-300">SNOW Rider 3D</h2>
             <p class="text-lg mb-4">Dodge or jump the obstacles!</p>
             <p class="text-sm font-semibold">Controls: Use A/D or Left/Right Arrow Keys to move. Use <strong class="text-yellow-400">W, UP ARROW, or SPACE</strong> to jump!</p>
             <button id="start-button" class="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
@@ -607,8 +607,8 @@
                     }
                 }
 
-                // Increase speed over time (Twice as fast ramp-up)
-                speed += 0.0002;
+                // Increase speed over time (Increased acceleration for faster curve)
+                speed += 0.0003;
 
                 // 3. Collision Check
                 checkCollision();
