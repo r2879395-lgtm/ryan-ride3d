@@ -94,10 +94,10 @@
         let scene, camera, renderer;
         let player; // Player is now a THREE.Group
         let keyStates = {};
-        let speed = 0.65; // Increased starting speed
+        let speed = 0.8; // Increased starting speed (was 0.65)
         const PLAYER_MAX_X = 15;
-        const OBSTACLE_COUNT = 15; // More obstacles
-        const OBSTACLE_Z_SPACING = 20; // Reduced spacing for more difficulty
+        const OBSTACLE_COUNT = 30; // Doubled obstacles for higher density (was 15)
+        const OBSTACLE_Z_SPACING = 15; // Reduced spacing for more difficulty (was 20)
 
         let obstacles = [];
         let isPlaying = false;
@@ -504,6 +504,70 @@
             return group;
         }
 
+        /**
+         * Creates the fourth obstacle type: a static, large snowman.
+         */
+        function createSnowman() {
+            const group = new THREE.Group();
+            
+            // Materials
+            const snowMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF, flatShading: true }); // White snow
+            const darkMaterial = new THREE.MeshPhongMaterial({ color: 0x333333, flatShading: true }); // Dark gray/black for details
+
+            // 1. Bottom Sphere (Largest)
+            const bottomGeo = new THREE.SphereGeometry(1.2, 8, 6);
+            const bottom = new THREE.Mesh(bottomGeo, snowMaterial);
+            bottom.position.y = 1.2; 
+            group.add(bottom);
+            
+            // 2. Middle Sphere
+            const middleGeo = new THREE.SphereGeometry(0.9, 8, 6);
+            const middle = new THREE.Mesh(middleGeo, snowMaterial);
+            middle.position.y = 2.9;
+            group.add(middle);
+
+            // 3. Head Sphere (Smallest)
+            const headGeo = new THREE.SphereGeometry(0.6, 8, 6);
+            const head = new THREE.Mesh(headGeo, snowMaterial);
+            head.position.y = 4.4; 
+            group.add(head);
+            
+            // Add simple details (eyes and buttons)
+            const detailGeo = new THREE.SphereGeometry(0.1, 4, 3);
+            
+            // Eyes (relative to head center)
+            const eye1 = new THREE.Mesh(detailGeo, darkMaterial);
+            eye1.position.set(-0.2, 0.2, 0.55); 
+            head.add(eye1); 
+            
+            const eye2 = new THREE.Mesh(detailGeo, darkMaterial);
+            eye2.position.set(0.2, 0.2, 0.55); 
+            head.add(eye2);
+
+            // Buttons (relative to middle center)
+            const button1 = new THREE.Mesh(detailGeo, darkMaterial);
+            button1.position.set(0, 0.3, 0.85); 
+            middle.add(button1);
+            
+            const button2 = new THREE.Mesh(detailGeo, darkMaterial);
+            button2.position.set(0, -0.3, 0.85);
+            middle.add(button2);
+            
+            // Collision properties: wide radius and tall height to force dodging
+            const treeRadius = 1.0; 
+            const obstacleHeight = 4.4; 
+            
+            group.castShadow = true;
+            group.receiveShadow = true;
+
+            // Collision data
+            group.userData.isObstacle = true;
+            group.userData.treeRadius = treeRadius; 
+            group.userData.obstacleHeight = obstacleHeight;
+            group.visible = false;
+            return group;
+        }
+
 
         /**
          * Sets up the initial pool of obstacles, mixing all three types.
@@ -513,15 +577,17 @@
             for (let i = 0; i < OBSTACLE_COUNT; i++) {
                 let obstacle;
                 
-                // Randomly choose between Bare Tree (0), Snowy Pine (1), or Tree Stump (2)
-                const type = getRandomInt(0, 2); 
+                // Randomly choose between Bare Tree (0), Snowy Pine (1), Tree Stump (2), or Snowman (3)
+                const type = getRandomInt(0, 3); 
                 
                 if (type === 0) {
                     obstacle = createBareTree();
                 } else if (type === 1) {
                     obstacle = createPineTree();
+                } else if (type === 2) {
+                    obstacle = createTreeStump(); 
                 } else {
-                    obstacle = createTreeStump(); // New stump type
+                    obstacle = createSnowman(); // New snowman type
                 }
 
                 obstacles.push(obstacle);
@@ -607,8 +673,8 @@
                     }
                 }
 
-                // Increase speed over time (Increased acceleration for faster curve)
-                speed += 0.0003;
+                // Increase speed over time (Doubled acceleration rate for faster curve)
+                speed += 0.0006;
 
                 // 3. Collision Check
                 checkCollision();
@@ -624,7 +690,7 @@
         function startGame() {
             // Reset state
             score = 0;
-            speed = 0.65; // Reset to faster starting speed
+            speed = 0.8; // Reset to faster starting speed
             isPlaying = true;
             player.position.x = 0; // Center player
             player.position.y = 0; // Reset vertical position
